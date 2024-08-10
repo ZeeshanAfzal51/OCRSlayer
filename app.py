@@ -1,6 +1,9 @@
 import os
-import pdfplumber
+import fitz  # PyMuPDF
+from pdf2image import convert_from_path
+import pytesseract
 import streamlit as st
+from PIL import Image
 import google.generativeai as genai
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -8,21 +11,28 @@ from openpyxl import load_workbook
 
 # Step 1: Define functions for processing PDFs and extracting data
 def extract_text_from_pdf(pdf_path):
-    with pdfplumber.open(pdf_path) as pdf:
-        text_data = []
-        for page in pdf.pages:
-            text = page.extract_text()
-            text_data.append(text)
+    doc = fitz.open(pdf_path)
+    text_data = []
+    for page_num in range(len(doc)):
+        page = doc.load_page(page_num)
+        text = page.get_text("text")
+        text_data.append(text)
     return text_data
 
-def combine_text_and_ocr_results(text_data, ocr_results=None):
-    # No longer need OCR results, so just combine the extracted text
-    combined_text = "\n".join(text_data)
+def convert_pdf_to_images_and_ocr(pdf_path):
+    images = convert_from_path(pdf_path)
+    ocr_results = [pytesseract.image_to_string(image) for image in images]
+    return ocr_results
+
+def combine_text_and_ocr_results(text_data, ocr_results):
+    combined_results = []
+    for text, ocr_text in zip(text_data, ocr_results):
+        combined_results.append(text + "\n" + ocr_text)
+    combined_text = "\n".join(combined_results)
     return combined_text
 
 def extract_parameters_from_response(response_text):
     def sanitize_value(value):
-        # Remove leading/trailing spaces, quotes, and commas
         return value.strip().replace('"', '').replace(',', '')
 
     parameters = {
@@ -48,7 +58,6 @@ def extract_parameters_from_response(response_text):
     for line in lines:
         for key in parameters.keys():
             if key in line:
-                # Extract value and sanitize it
                 value = sanitize_value(line.split(":")[-1].strip())
                 parameters[key] = value
     return parameters
@@ -57,8 +66,8 @@ def extract_parameters_from_response(response_text):
 genai.configure(api_key=st.secrets["gemini_api_key"])
 
 # Define the prompt
-prompt = ("the following is extracted text from a single invoice PDF. "
-          "Please use the extracted text to give a structured summary. "
+prompt = ("the following is OCR extracted text from a single invoice PDF. "
+          "Please use the OCR extracted text to give a structured summary. "
           "The structured summary should consider information such as PO Number, Invoice Number, Invoice Amount, Invoice Date, "
           "CGST Amount, SGST Amount, IGST Amount, Total Tax Amount, Taxable Amount, TCS Amount, IRN Number, Receiver GSTIN, "
           "Receiver Name, Vendor GSTIN, Vendor Name, Remarks and Vendor Code. If any of this information is not available or present, "
@@ -83,14 +92,14 @@ if pdf_files and selected_month and excel_file:
 
     # Google Sheets setup
     spreadsheet = client.open("Health&GlowMasterData")
-    sheet = spreadsheet.worksheet(selected_month)  # Use the selected month
+    sheet = spreadsheet.worksheet(selected_month)
 
     # Process each PDF and send data to Google Sheets and Excel
     for pdf_file in pdf_files:
         text_data = extract_text_from_pdf(pdf_file)
-        combined_text = combine_text_and_ocr_results(text_data)
+        ocr_results = convert_pdf_to_images_and_ocr(pdf_file)
+        combined_text = combine_text_and_ocr_results(text_data, ocr_results)
 
-        # Combine the prompt and the extracted text
         input_text = f"{prompt}\n\n{combined_text}"
 
         # Create the model configuration
@@ -109,9 +118,7 @@ if pdf_files and selected_month and excel_file:
         )
 
         # Start a chat session
-        chat_session = model.start_chat(
-            history=[]
-        )
+        chat_session = model.start_chat(history=[])
 
         # Send the combined text as a message
         response = chat_session.send_message(input_text)
@@ -134,5 +141,6 @@ if pdf_files and selected_month and excel_file:
     # Save the updated Excel file and download it
     workbook.save(excel_file.name)
     st.download_button("Download Updated Excel File", data=open(excel_file.name, "rb").read(), file_name=excel_file.name)
+
 
 
