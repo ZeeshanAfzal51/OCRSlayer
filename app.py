@@ -82,7 +82,7 @@ def extract_parameters_from_response(response_text):
     return parameters
 
 # Set up Google Generative AI client
-os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+os.environ["GEMINI_API_KEY"] = st.secrets["AIzaSyDI2DelJZlGyXEPG3_b-Szo-ixRvaB0ydY"]
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 prompt = ("the following is OCR extracted text from a single invoice PDF. "
