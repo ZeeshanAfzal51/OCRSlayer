@@ -10,17 +10,17 @@ from oauth2client.service_account import ServiceAccountCredentials
 from openpyxl import load_workbook
 
 # Step 1: Define functions for processing PDFs and extracting data
-def extract_text_from_pdf(pdf_path):
-    doc = fitz.open(pdf_path)
-    text_data = []
-    for page_num in range(len(doc)):
-        page = doc.load_page(page_num)
-        text = page.get_text("text")
-        text_data.append(text)
+def extract_text_from_pdf(pdf_file):
+    with fitz.open(stream=pdf_file.read(), filetype="pdf") as doc:
+        text_data = []
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            text = page.get_text("text")
+            text_data.append(text)
     return text_data
 
-def convert_pdf_to_images_and_ocr(pdf_path):
-    images = convert_from_path(pdf_path)
+def convert_pdf_to_images_and_ocr(pdf_file):
+    images = convert_from_path(pdf_file.name)
     ocr_results = [pytesseract.image_to_string(image) for image in images]
     return ocr_results
 
@@ -141,6 +141,7 @@ if pdf_files and selected_month and excel_file:
     # Save the updated Excel file and download it
     workbook.save(excel_file.name)
     st.download_button("Download Updated Excel File", data=open(excel_file.name, "rb").read(), file_name=excel_file.name)
+
 
 
 
