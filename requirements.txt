@@ -1,0 +1,9 @@
+PyMuPDF
+pytesseract
+pdf2image
+Pillow
+google-generativeai
+gspread
+oauth2client
+openpyxl
+streamlit
