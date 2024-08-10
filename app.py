@@ -1,7 +1,7 @@
 import os
 import fitz  # PyMuPDF
 import tempfile
-from pdf2image import convert_from_path
+from pdf2image import convert_from_path, pdfinfo_from_path
 import pytesseract
 import streamlit as st
 from PIL import Image
@@ -9,6 +9,7 @@ import google.generativeai as genai
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from openpyxl import load_workbook
+from pdf2image.exceptions import PDFPageCountError
 
 # Step 1: Define functions for processing PDFs and extracting data
 def extract_text_from_pdf(pdf_file):
@@ -26,14 +27,28 @@ def convert_pdf_to_images_and_ocr(pdf_file):
         temp_pdf.write(pdf_file.read())
         temp_pdf_path = temp_pdf.name
     
-    # Convert PDF to images
-    images = convert_from_path(temp_pdf_path)
-    
-    # Perform OCR on each image
-    ocr_results = [pytesseract.image_to_string(image) for image in images]
-    
-    # Clean up the temporary file
-    os.remove(temp_pdf_path)
+    try:
+        # Debugging step: Check PDF info
+        pdf_info = pdfinfo_from_path(temp_pdf_path)
+        st.write(f"PDF Info: {pdf_info}")
+
+        # Convert PDF to images
+        images = convert_from_path(temp_pdf_path)
+
+        # Perform OCR on each image
+        ocr_results = [pytesseract.image_to_string(image) for image in images]
+
+    except PDFPageCountError as e:
+        st.error(f"Error processing PDF: {e}")
+        return []
+
+    except Exception as e:
+        st.error(f"Unexpected error occurred: {e}")
+        return []
+
+    finally:
+        # Clean up the temporary file
+        os.remove(temp_pdf_path)
     
     return ocr_results
 
@@ -79,11 +94,11 @@ def extract_parameters_from_response(response_text):
 genai.configure(api_key=st.secrets["gemini_api_key"])
 
 # Define the prompt
-prompt = ("the following is OCR extracted text from a single invoice PDF. "
+prompt = ("The following is OCR extracted text from a single invoice PDF. "
           "Please use the OCR extracted text to give a structured summary. "
           "The structured summary should consider information such as PO Number, Invoice Number, Invoice Amount, Invoice Date, "
           "CGST Amount, SGST Amount, IGST Amount, Total Tax Amount, Taxable Amount, TCS Amount, IRN Number, Receiver GSTIN, "
-          "Receiver Name, Vendor GSTIN, Vendor Name, Remarks and Vendor Code. If any of this information is not available or present, "
+          "Receiver Name, Vendor GSTIN, Vendor Name, Remarks, and Vendor Code. If any of this information is not available or present, "
           "then NA must be denoted next to the value. Please do not give any additional information.")
 
 # Step 3: Set up Google Sheets API
@@ -111,6 +126,11 @@ if pdf_files and selected_month and excel_file:
     for pdf_file in pdf_files:
         text_data = extract_text_from_pdf(pdf_file)
         ocr_results = convert_pdf_to_images_and_ocr(pdf_file)
+
+        if not ocr_results:
+            st.warning(f"Skipping {pdf_file.name} due to errors.")
+            continue
+
         combined_text = combine_text_and_ocr_results(text_data, ocr_results)
 
         input_text = f"{prompt}\n\n{combined_text}"
@@ -154,6 +174,7 @@ if pdf_files and selected_month and excel_file:
     # Save the updated Excel file and download it
     workbook.save(excel_file.name)
     st.download_button("Download Updated Excel File", data=open(excel_file.name, "rb").read(), file_name=excel_file.name)
+
 
 
 
